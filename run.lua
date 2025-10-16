@@ -1,10 +1,16 @@
 -- help string
 local HELP <const> = [=[Usage:
- ]=] .. app.NAME .. [=[ script [args...]
+ ${prog} script [args...]
     Run Lua script with app.lua runtime included. Script name "-" instructs
     to read the script from STDIN.
- ]=] .. app.NAME .. [=[ -h/--help
+
+ ${prog} -e script [args...]
+    Execute string "script" with app.lua runtime included.
+
+ ${prog} -h
+ ${prog} --help
     Display this help and exit.
+
 ]=]
 
 app:run(function()
@@ -17,8 +23,32 @@ app:run(function()
 	end
 
 	if script == "-h" or script == "--help" then
-		io.stderr:write(HELP)
+		HELP:expand_to(io.stderr, { prog = app.NAME })
 		os.exit(false)
+	end
+
+	if script == "-e" then
+		-- Lua expression
+		local expr <const> = arg[2]
+
+		if not expr then
+			app:fail("missing script")
+		end
+
+		-- shift arguments
+		table.move(arg, 3, #arg, 1)
+		arg[#arg], arg[#arg - 1] = nil, nil
+
+		-- load expression
+		local fn, err = load(expr)
+
+		if not fn then
+			io.stderr:write(app.NAME, ": ", err, "\n")
+			os.exit(false)
+		end
+
+		-- execute expression
+		return fn()
 	end
 
 	-- shift arguments
