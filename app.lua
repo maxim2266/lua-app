@@ -256,32 +256,47 @@ function os.tmpfile() --> file name
 	return tmp
 end
 
--- [global] stat
-function os.stat(pathname, ctx) --> table or (fail, error)
-	-- read stats
-	local s = "perm=%A\\tsize=%s\\tcreated=%W\\tmodified=%Y\\towner=%U\\tkind=%F"
+-- 'stat' result metatable
+local _stat_mt <const> = {
+	__tostring = function(t)
+		return table.concat({
+			"name:     " .. t.name,
+			"type:     " .. t.type,
+			"owner:    " .. t.owner,
+			"perm.:    " .. t.perm,
+			"size:     " .. t.size,
+			"created:  " .. os.date("%F %T", t.created),
+			"modified: " .. os.date("%F %T", t.modified),
+		}, "\n")
+	end
+}
 
-	s = ("stat --printf='%s' %s 2>&1 || true"):format(s, shell.quote(pathname))
-	s = shell.read(s, ctx or context("stat"))
+-- [global] stat
+function os.stat(pathname) --> table or (fail, error)
+	-- read stats
+	local s = "perm=%A\tsize=%s\tcreated=%W\tmodified=%Y\towner=%U\ttype=%F"
+
+	s = ("stat -c '%s' %s 2>&1 || true"):format(s, shell.quote(pathname))
+	s = shell.read(s)
 
 	if s:find("^stat:") then
-		return false, s:match(":%s*([^:]-)%s*$")
+		return false, ("%q: %s"):format(pathname, s:match(":%s*([^:]-)%s*$"))
 	end
 
 	-- parse result
-	local data <const> = {}
+	local data <const> = { name = pathname }
 
-	for k, v in s:gmatch("(%a+)=([^\t]+)") do
+	for k, v in s:gmatch("(%a+)=([^\t\n]+)") do
 		if k == "size" or k == "created" or k == "modified" then
 			data[k] = math.tointeger(v)
-		elseif k == "kind" then
+		elseif k == "type" then
 			data[k] = v:gsub(" empty ", " ")
 		else
 			data[k] = v
 		end
 	end
 
-	return data
+	return setmetatable(data, _stat_mt)
 end
 
 -- [global] remove file if it exists
