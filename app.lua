@@ -149,21 +149,6 @@ function app:run(fn, ...) --> never
 	os.exit(ok)
 end
 
--- run pipeline of functions: f, g -> g(f(x))
-function app:run_pipe(fn, ...) --> never
-	local function _pipe(f, g)
-		return function(...)
-			return g(f(...))
-		end
-	end
-
-	for i = 1, select("#", ...) do
-		fn = _pipe(fn, select(i, ...))
-	end
-
-	return self:run(fn)
-end
-
 -- context metatable
 local _ctx_mt <const> = {}
 
@@ -210,7 +195,7 @@ function context(prefix, parent) --> context object
 end
 
 -- [global] shell
-shell = setmetatable({
+shell = {
 	-- shell quoting (bash or sh)
 	quote = function(s) --> quoted string
 		s = "'" .. s:gsub("'", "'\\''") .. "'"
@@ -221,24 +206,14 @@ shell = setmetatable({
 
 	-- read command output
 	read = function(cmd, ctx) --> string
-		local just <const> = ctx or context("shell command")
+		local just <const> = ctx or context("shell")
 		local src <const> = just(io.popen(type(cmd) == "table" and table.concat(cmd, " ") or cmd))
 		local data <const> = src:read("a")
 
 		just(src:close())
 		return data
 	end,
-}, {
-	__index = function(t, k)
-		if k == "NAME" then
-			-- see https://stackoverflow.com/questions/3327013/how-to-determine-the-current-interactive-shell-that-im-in-command-line
-			local name <const> = t.read("ps -q $$ -o 'comm='", context("reading shell name")):trim()
-
-			rawset(t, k, name)
-			return name
-		end
-	end,
-})
+}
 
 -- [global] create automatically removed temporary directory
 function os.tmpdir(ctx) --> directory name
