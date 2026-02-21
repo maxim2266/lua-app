@@ -1,4 +1,4 @@
-#! ./lua-script
+#! ./luax
 
 assert(app, 'missing "app.lua"')
 

@@ -20,6 +20,6 @@ your-binary: path/to/app.lua one.lua two.lua three.lua
 
 ```
 
-Second, running `make` in this project produces a binary called `lua-script`, which has all the
-runtime pre-compiled in it, and an external script can be invoked like `lua-script your-file.lua`.
-Hint: shebang like `#! lua-script` works as well, assuming `lua-script` is located somewhere on the $PATH.
+Second, running `make` in this project produces a binary called `luax`, which has all the
+runtime pre-compiled in it, and an external script can be invoked like `luax your-file.lua`.
+_Hint_: shebang like `#!luax` works as well, assuming `luax` is located somewhere on the $PATH.

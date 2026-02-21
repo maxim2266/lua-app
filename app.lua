@@ -134,7 +134,7 @@ function app:run(fn, ...) --> never
 	local ok, err = xpcall(fn, function(e)
 		-- see if the error message is from a SIGINT interrupt
 		if type(e) == "string" and e:find("%f[^%s\0]interrupted!$") then
-			_write_msg(self.NAME, "error", "killed by SIGINT")
+			_write_msg(self.NAME, "error", "terminated.")
 			os.exit(128 + 2) -- SIGINT exit code
 		end
 

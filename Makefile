@@ -5,7 +5,7 @@ MAKEFLAGS += --no-builtin-rules --no-builtin-variables
 .PHONY: clean test install uninstall
 
 # binary
-BIN := lua-script
+BIN := luax
 
 # Lua version
 LUA_VER := 5.4
