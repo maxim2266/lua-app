@@ -62,16 +62,20 @@ end
 -- original os.exit
 local _real_exit <const> = os.exit
 
+-- exit code
+local _exit_code = 0
+
 -- [global] os.exit replacement to make sure Lua state is closed upon exit
 function os.exit(code)
-	_real_exit(code, true)
+	_exit_code = not code and 1 or code == true and 0 or code
+	_real_exit(_exit_code, true)
 end
 
 -- exit handlers table
 _G["~ exit handlers ~"] = setmetatable({}, {
 	__gc = function(handlers)
 		for _, fn in ipairs(handlers) do
-			pcall(fn)
+			pcall(fn, _exit_code)
 		end
 	end
 })
