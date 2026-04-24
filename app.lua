@@ -99,6 +99,9 @@ function atexit(fn, ...)
 	)
 end
 
+-- make STDERR line-buffered
+io.stderr:setvbuf("line")
+
 -- write message to STDERR
 local function _write_msg(name, kind, msg, ...)
 	local _ = io.stderr:write(
