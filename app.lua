@@ -210,11 +210,10 @@ shell = {
 
 	-- read command output
 	read = function(cmd, ctx) --> string
-		local just <const> = ctx or context("shell")
-		local src <const> = just(io.popen(type(cmd) == "table" and table.concat(cmd, " ") or cmd))
+		local src <const> = io.popen(type(cmd) == "table" and table.concat(cmd, " ") or cmd)
 		local data <const> = src:read("a")
 
-		just(src:close())
+		context("shell", ctx)(src:close())
 		return data
 	end,
 }
@@ -254,12 +253,28 @@ local _stat_mt <const> = {
 function os.stat(pathname) --> table or (fail, error)
 	-- read stats
 	local s = "perm=%A\tsize=%s\tcreated=%W\tmodified=%Y\towner=%U\ttype=%F"
+	local src <const> = io.popen(("stat -c '%s' %s 2>&1"):format(s, shell.quote(pathname)))
 
-	s = ("stat -c '%s' %s 2>&1 || true"):format(s, shell.quote(pathname))
-	s = shell.read(s)
+	s = src:read("a")
 
-	if s:find("^stat:") then
-		return false, ("%q: %s"):format(pathname, s:match(":%s*([^:]-)%s*$"))
+	-- error check
+	local ok, err, code = src:close()
+
+	if not ok then
+		if err == "exit" then
+			if s:find("^stat:%s+") then
+				return false, ("%q: %s"):format(pathname, s:match(":%s*([^:]-)%s*$"))
+			else
+				-- must never happen
+				error(("stat: unexpected error message: %q"):format(s:trim()))
+			end
+		elseif err == "signal" then
+			-- exit as if terminated by this signal
+			os.exit(code + 128)
+		else
+			-- must never happen
+			error(("stat: unexpected error status: %q"):format(err))
+		end
 	end
 
 	-- parse result
