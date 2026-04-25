@@ -262,19 +262,12 @@ function os.stat(pathname) --> table or (fail, error)
 
 	if not ok then
 		if err == "exit" then
-			if s:find("^stat:%s+") then
-				return false, ("%q: %s"):format(pathname, s:match(":%s*([^:]-)%s*$"))
-			else
-				-- must never happen
-				error(("stat: unexpected error message: %q"):format(s:trim()))
-			end
-		elseif err == "signal" then
-			-- exit as if terminated by this signal
-			os.exit(code + 128)
-		else
-			-- must never happen
-			error(("stat: unexpected error status: %q"):format(err))
+			assert(s:find("^stat:%s+"), "stat: unexpected error message")
+			return nil, ("%q: %s"):format(pathname, s:match(":%s*([^:]-)%s*$"))
 		end
+
+		assert(err == "signal", "stat: unexpected error status")
+		os.exit(code + 128) -- exit as if terminated by this signal
 	end
 
 	-- parse result
