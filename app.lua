@@ -210,10 +210,11 @@ shell = {
 
 	-- read command output
 	read = function(cmd, ctx) --> string
-		local src <const> = io.popen(type(cmd) == "table" and table.concat(cmd, " ") or cmd)
+		local just <const> = context("shell", ctx)
+		local src <const> = just(io.popen(type(cmd) == "table" and table.concat(cmd, " ") or cmd))
 		local data <const> = src:read("a")
 
-		context("shell", ctx)(src:close())
+		just(src:close())
 		return data
 	end,
 }
@@ -234,6 +235,41 @@ function os.tmpfile() --> file name
 	return tmp
 end
 
+-- start the command, read all data, and close command handle
+local function _read_all_cmd(cmd, prefix) --> string or (fail, error)
+	-- start the command
+	local src <const>, err <const> = io.popen(cmd .. " 2>&1")
+
+	if err then
+		error(("failed to start command %q: %s"):format(cmd, err))
+	end
+
+	-- read command output
+	local s <const> = src:read("a"):trim()
+	local ok <const>, err <const>, code <const> = src:close()
+
+	if ok then
+		return s
+	end
+
+	-- error from the command
+	if err == "exit" then
+		-- ensure prefix
+		if not prefix then
+			prefix = cmd:match("^%S+")
+		end
+
+		-- extract error message
+		if not s:find("^" .. prefix .. ":%s+") then
+			error(("%s: unexpected error message: %q"):format(prefix, s))
+		end
+
+		return nil, s:match(":%s*([^:]-)%s*$")
+	end
+
+	os.exit(code + 128) -- exit as if terminated by the signal
+end
+
 -- 'stat' result metatable
 local _stat_mt <const> = {
 	__tostring = function(t)
@@ -243,8 +279,8 @@ local _stat_mt <const> = {
 			"owner:    " .. t.owner,
 			"perm.:    " .. t.perm,
 			"size:     " .. t.size,
-			"created:  " .. os.date("%F %T", t.created),
-			"modified: " .. os.date("%F %T", t.modified),
+			"created:  " .. os.date("%F %T %z", t.created),
+			"modified: " .. os.date("%F %T %z", t.modified),
 		}, "\n")
 	end
 }
@@ -252,28 +288,20 @@ local _stat_mt <const> = {
 -- [global] stat
 function os.stat(pathname) --> table or (fail, error)
 	-- read stats
-	local s = "perm=%A\tsize=%s\tcreated=%W\tmodified=%Y\towner=%U\ttype=%F"
-	local src <const> = io.popen(("stat -c '%s' %s 2>&1"):format(s, shell.quote(pathname)))
+	local cmd = "perm=%A\tsize=%s\tcreated=%W\tmodified=%Y\towner=%U\ttype=%F"
 
-	s = src:read("a")
+	cmd = ("stat -c '%s' %s"):format(cmd, shell.quote(pathname))
 
-	-- error check
-	local ok, err, code = src:close()
+	local s <const>, err <const> = _read_all_cmd(cmd)
 
-	if not ok then
-		if err == "exit" then
-			assert(s:find("^stat:%s+"), "stat: unexpected error message")
-			return nil, ("%q: %s"):format(pathname, s:match(":%s*([^:]-)%s*$"))
-		end
-
-		assert(err == "signal", "stat: unexpected error status")
-		os.exit(code + 128) -- exit as if terminated by this signal
+	if not s then
+		return nil, err
 	end
 
 	-- parse result
 	local data <const> = { name = pathname }
 
-	for k, v in s:gmatch("(%a+)=([^\t\n]+)") do
+	for k, v in s:gmatch("(%a+)=([^\t]+)") do
 		if k == "size" or k == "created" or k == "modified" then
 			data[k] = math.tointeger(v)
 		elseif k == "type" then
@@ -284,6 +312,11 @@ function os.stat(pathname) --> table or (fail, error)
 	end
 
 	return setmetatable(data, _stat_mt)
+end
+
+-- [global] realpath
+function os.realpath(pathname) --> real path or (fail, error)
+	return _read_all_cmd("realpath -e " .. shell.quote(pathname))
 end
 
 -- [global] remove file if it exists
