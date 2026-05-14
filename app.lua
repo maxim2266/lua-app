@@ -62,64 +62,64 @@ end
 -- original os.exit
 local _real_exit <const> = os.exit
 
--- exit code
-local _exit_code = 0
-
 -- [global] os.exit replacement to make sure Lua state is closed upon exit
 function os.exit(code)
-	_exit_code = not code and 1 or code == true and 0 or code
-	_real_exit(_exit_code, true)
-end
-
--- exit handlers table
-_G["~ exit handlers ~"] = setmetatable({}, {
-	__gc = function(handlers)
-		for _, fn in ipairs(handlers) do
-			pcall(fn, _exit_code)
-		end
-	end
-})
-
--- [global] register exit handler
-function atexit(fn, ...)
-	-- check parameter now to avoid surprises when the program terminates
-	local t <const> = type(fn)
-
-	if t ~= "function" then
-		error('invalid argument type "' .. t .. '" in a call to atexit function', 2)
-	end
-
-	-- add handler
-	local arg <const> = select("#", ...) > 0 and table.pack(...)
-
-	table.insert(
-		_G["~ exit handlers ~"],
-		1,
-		arg and function() fn(table.unpack(arg)) end or fn
-	)
+	_real_exit(code, true)
 end
 
 -- write message to STDERR
 local function _write_msg(name, kind, msg, ...)
-	local _ = io.stderr:write(
-		name,
-		": [", kind, "] ",
-		(select("#", ...) > 0 and msg:format(...) or msg):trim(),
-		"\n"
-	) or os.exit(125) -- STDERR is dead
+	-- prepare message text for single write
+	msg = (select("#", ...) > 0 and msg:format(...) or msg):trim()
+	msg = name .. ": [" .. kind .. "] " .. msg .. "\n"
+
+	-- write
+	if not io.stderr:write(msg) then
+		os.exit(125) -- STDERR is dead
+	end
 end
 
 -- [global] application object
 app = {
 	-- application name
 	NAME = arg[0]:match("[^/]+$"),
+
+	-- table of exit handlers
+	_exit_handlers = setmetatable({}, {
+		__gc = function(handlers)
+			for _, fn in ipairs(handlers) do
+				pcall(fn)
+			end
+		end
+	}),
 }
+
+-- register exit handler
+-- Note: any handler calling os.exit will terminate the application without
+-- invoking the remaining exit handlers
+function app:atexit(fn, ...)
+	-- check parameter now to avoid surprises when the program terminates
+	local t <const> = type(fn)
+
+	if t ~= "function" then
+		error('invalid argument type "' .. t .. '" in a call to app:atexit function', 2)
+	end
+
+	-- add handler
+	local arg <const> = select("#", ...) > 0 and table.pack(...)
+
+	table.insert(
+		self._exit_handlers,
+		1,
+		arg and function() fn(table.unpack(arg)) end or fn
+	)
+end
 
 -- application-level logging
 function app:log(msg, ...)	_write_msg(self.NAME, "info", msg, ...) end
 function app:warn(msg, ...)	_write_msg(self.NAME, "warn", msg, ...) end
 
-function app:fail(msg, ...) --> never
+function app:fail(msg, ...) --> never returns
 	_write_msg(self.NAME, "error", msg, ...)
 	os.exit(false)
 end
@@ -130,9 +130,6 @@ function app:run(fn, ...) --> never
 	self.run = function()
 		error("recursive call to app:run", 2)
 	end
-
-	-- make STDERR line-buffered
-	io.stderr:setvbuf("line")
 
 	-- invoke the function
 	local ok, err = xpcall(fn, function(e)
@@ -223,7 +220,7 @@ shell = {
 function os.tmpdir(ctx) --> directory name
 	local tmp <const> = shell.read("mktemp -d", ctx):trim()
 
-	atexit(os.execute, "rm -rf '" .. tmp .. "'")
+	app:atexit(os.execute, "rm -rf '" .. tmp .. "'")
 	return tmp
 end
 
@@ -231,7 +228,7 @@ end
 function os.tmpfile() --> file name
 	local tmp <const> = os.tmpname()
 
-	atexit(os.remove, tmp)
+	app:atexit(os.remove, tmp)
 	return tmp
 end
 
