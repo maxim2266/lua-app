@@ -124,32 +124,6 @@ function app:fail(msg, ...) --> never returns
 	os.exit(false)
 end
 
--- application runner
-function app:run(fn, ...) --> never
-	-- disallow recursive calls
-	self.run = function()
-		error("recursive call to app:run", 2)
-	end
-
-	-- invoke the function
-	local ok, err = xpcall(fn, function(e)
-		-- see if the error message is from a SIGINT interrupt
-		if type(e) == "string" and e:find("%f[^%s\0]interrupted!$") then
-			_write_msg(self.NAME, "error", "terminated.")
-			os.exit(128 + 2) -- SIGINT exit code
-		end
-
-		-- pass the error object through
-		return debug.traceback(e, 2)
-	end, ...)
-
-	if not ok then
-		io.stderr:write(tostring(err):trim(), "\n")
-	end
-
-	os.exit(ok)
-end
-
 -- context metatable
 local _ctx_mt <const> = {}
 
