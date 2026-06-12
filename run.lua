@@ -19,7 +19,7 @@ local function ensure(res, err) --> fn
 end
 
 -- script name
-local script <const> = ensure(arg[1], "missing script name")
+local script = ensure(arg[1], "missing script name")
 
 -- help string display
 if script == "-h" or script == "--help" then
@@ -27,32 +27,32 @@ if script == "-h" or script == "--help" then
 	os.exit(false)
 end
 
--- load and compile script
-local fn
+-- expressions
+while arg[1] == "-e" do
+	table.remove(arg, 1) -- '-e'
+	ensure(load(ensure(table.remove(arg, 1), "missing script")))() -- execute expression
+end
 
-if script == "-e" then
-	-- Lua expression
-	local expr <const> = ensure(arg[2], "missing script")
+-- script
+script = arg[1]
 
-	-- shift arguments
-	table.move(arg, 3, #arg, 1)
-	arg[#arg], arg[#arg - 1] = nil, nil
+if script then
+	-- load
+	local fn
 
-	-- load expression
-	fn = ensure(load(expr))
-else
-	-- shift arguments
-	table.move(arg, 1, #arg, 0)
-	arg[#arg] = nil
-
-	-- load script
 	if script == "-" then
 		fn = ensure(loadfile())
+		table.remove(arg, 1) -- dash
 	else
 		fn = ensure(loadfile(script))
 		app.NAME = script:match("[^/]+$")
-	end
-end
 
--- run
-os.exit(not fn())
+		-- arguments:
+		--   -2      -1      0       1...
+		--   lua5.4  ./luax  script  args...
+		table.move(arg, -1, #arg, -2)[#arg] = nil
+	end
+
+	-- execute
+	os.exit(not fn())
+end
