@@ -1,15 +1,12 @@
 -- help string
 local HELP <const> = [=[Usage:
- ${prog} script [args...]
-    Run Lua script with app.lua runtime included. Script name "-" instructs
-    to read the script from STDIN.
+  ${prog} [OPTIONS] [SCRIPT [ARGS...]]
 
- ${prog} -e script [args...]
-    Execute string "script" with app.lua runtime included.
+where SCRIPT is either a file name, or "-" for STDIN.
 
- ${prog} -h
- ${prog} --help
-    Display this help and exit.
+Options:
+  -e EXPR     Execute string EXPR.
+  -h, --help  Display this help and exit.
 
 ]=]
 
@@ -28,14 +25,13 @@ if script == "-h" or script == "--help" then
 end
 
 -- expressions
-while arg[1] == "-e" do
+while script == "-e" do
 	table.remove(arg, 1) -- '-e'
 	ensure(load(ensure(table.remove(arg, 1), "missing script")))() -- execute expression
+	script = arg[1]
 end
 
 -- script
-script = arg[1]
-
 if script then
 	-- load
 	local fn
