@@ -195,7 +195,7 @@ local function test_stat(just)
 		just:fail("unexpected file name: '%q'", info.name)
 	end
 
-	if info.type ~= "regular file" then
+	if info.type ~= "f" then
 		just:fail("unexpected file type: '%q'", info.type)
 	end
 

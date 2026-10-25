@@ -256,6 +256,19 @@ local _stat_mt <const> = {
 	end
 }
 
+-- file type letters
+local _stat_letters <const> = {
+	["regular file"] = 'f',
+	["regular empty file"] = 'f',
+	["directory"] = 'd',
+	["symbolic link"] = 'l',
+	["character special file"] = 'c',
+	["block special file"] = 'b',
+	["fifo"] = 'p',
+	["socket"] = 's',
+	["door"] = 'D',
+}
+
 -- [global] stat
 function os.stat(pathname) --> table or (fail, error)
 	-- read stats
@@ -276,7 +289,7 @@ function os.stat(pathname) --> table or (fail, error)
 		if k == "size" or k == "created" or k == "modified" then
 			data[k] = math.tointeger(v)
 		elseif k == "type" then
-			data[k] = v:gsub(" empty ", " ")
+			data[k] = _stat_letters[v] or '?'
 		else
 			data[k] = v
 		end
