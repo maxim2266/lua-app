@@ -37,7 +37,7 @@ function string:expand_to(dest, map) --> ok or (fail, ...)
 		end
 
 		-- match
-		local i, j = self:find(_exp_re, b)
+		local i <const>, j <const> = self:find(_exp_re, b)
 
 		if not i then
 			return dest:write(self:sub(b))

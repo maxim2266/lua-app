@@ -112,7 +112,7 @@ local function test_shell_quote()
 	end
 end
 
-local function test_lines_from()
+local function test_lines_from(just)
 	local tests <const> = {
 		{ "", "" },
 		{ "x", "x" },
@@ -132,7 +132,6 @@ local function test_lines_from()
 		{ string.rep("x", 32 * 1024 - 1) .. "___x", string.rep("x", 32 * 1024 - 1) .. "___x" },
 	}
 
-	local just = context("io.lines_from")
 	local tmp <const> = os.tmpfile()
 
 	for i, t in ipairs(tests) do
@@ -155,8 +154,7 @@ local function test_lines_from()
 	end
 end
 
-local function test_lines_from_2()
-	local just <const> = context("io.lines_from (default)")
+local function test_lines_from_2(just)
 	local temp_name <const> = os.tmpfile()
 	local tmp <const> = just(io.open(temp_name, "w+"))
 
@@ -178,13 +176,45 @@ local function test_lines_from_2()
 	end
 end
 
+local function test_tmp_dir(just)
+	local name <const> = shell.read("./luax -e 'print(os.tmpdir())'", just):trim()
+
+	if os.execute(("[ -e '%s' ]"):format(name)) then
+		just:fail("directory %s is still there", name)
+	end
+end
+
+local function test_stat(just)
+	local info, err = os.stat("./luax")
+
+	if not info then
+		just:fail("could not stat ./luax: " .. err)
+	end
+
+	if info.name ~= "./luax" then
+		just:fail("unexpected file name: '%q'", info.name)
+	end
+
+	if info.type ~= "regular file" then
+		just:fail("unexpected file type: '%q'", info.type)
+	end
+
+-- 	print(info)
+
+	info = os.stat("./does-not-exist")
+
+	if info then
+		just:fail("nonexistent file info:\n" .. info)
+	end
+end
+
 -- test runner
 local function run_tests(tests)
 	for i, t in ipairs(tests) do
 		local name, test = t[1], t[2]
 
 		print("# test " .. i .. ":", name)
-		test()
+		test(context(name))
 		print("+ passed")
 	end
 
@@ -198,4 +228,6 @@ run_tests {
 	{ "shell.quote", test_shell_quote },
 	{ "io.lines_from", test_lines_from },
 	{ "io.lines_from (default)", test_lines_from_2 },
+	{ "os.tmpdir", test_tmp_dir },
+	{ "os.stat", test_stat },
 }

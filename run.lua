@@ -16,32 +16,32 @@ local function ensure(res, err) --> fn
 end
 
 -- script name
-local script = ensure(arg[1], "missing script name")
+local opt = ensure(arg[1], "missing script file name")
 
 -- help string display
-if script == "-h" or script == "--help" then
+if opt == "-h" or opt == "--help" then
 	HELP:expand_to(io.stderr, { prog = app.NAME })
 	os.exit(false)
 end
 
 -- expressions
-while script == "-e" do
+while opt == "-e" do
 	table.remove(arg, 1) -- '-e'
 	ensure(load(ensure(table.remove(arg, 1), "missing script")))() -- execute expression
-	script = arg[1]
+	opt = arg[1]
 end
 
 -- script
-if script then
+if opt then
 	-- load
 	local fn
 
-	if script == "-" then
+	if opt == "-" then
 		fn = ensure(loadfile())
 		table.remove(arg, 1) -- dash
 	else
-		fn = ensure(loadfile(script))
-		app.NAME = script:match("[^/]+$")
+		fn = ensure(loadfile(opt))
+		app.NAME = opt:match("[^/]+$")
 
 		-- arguments:
 		--   -1      0       1...
