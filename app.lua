@@ -5,6 +5,32 @@ function string.trim(s) --> string
 	return i > #s and "" or s:match(".*%S", i)
 end
 
+-- non-empty string or nil
+local function _str_or_nil(s)
+	return #s > 0 and s or nil
+end
+
+-- convert each truthy argument via the given function, and collect
+-- results into an array
+local function _map_args(fn, ...) --> table
+	local t <const> = {}
+
+	for i = 1, select("#", ...) do
+		local s <const> = select(i, ...)
+
+		if s then
+			t[#t + 1] = fn(s)
+		end
+	end
+
+	return t
+end
+
+-- concatenate non-empty strings
+local function _cat(...) --> string
+	return table.concat(_map_args(_str_or_nil, ...), " ")
+end
+
 -- regex for string expansion
 local _exp_re <const> = "%$%$?{[%a_][%w_]*}"
 
@@ -373,6 +399,91 @@ function io.lines_from(src, delim)
 
 			-- read from source
 			return fill(buff:sub(i))
+		end
+	end
+end
+
+-- close scanner object
+local function _close_object(obj)
+	setmetatable(obj, nil).close = nil	-- ?
+	return io.close(obj.src)
+end
+
+-- create substitution object for scanner
+local function _scanner(src, ...)
+	if not src then
+		return src, ...
+	end
+
+	return setmetatable({
+		src = src,
+		close = _close_object,
+	}, {
+		__call = io.lines_from(src, "\0"),
+		__close = _close_object,
+	})
+end
+
+-- [global] directory scanner
+os.scan = {}
+
+function os.scan.start(dir, ...)	--> iterator, or (fail, error, ...)
+	local cmd <const> = _cat("find", shell.quote(dir), "-mindepth 1", _cat(...), "-print0")
+
+	return _scanner(io.popen(cmd))
+end
+
+-- directory filters (a limited subset)
+do
+	local function _compose_option(opt, values) --> string or nil
+		if #values == 1 then
+			return "-" .. opt .. " " .. values[1]
+		elseif #values > 1 then
+			return "\\( -" .. opt .. " " .. table.concat(values, " -o -" .. opt .. " ") .. " \\)"
+		end
+	end
+
+	local function _quote_or_nil(s)
+		return #s > 0 and shell.quote(s) or nil
+	end
+
+	-- options we want to implement
+	local _opts <const> = {
+		"name", "iname",
+		"path", "ipath",
+		"lname", "ilname",
+		"regex", "iregex",
+	}
+
+	-- add functions to os.scan
+	for _, opt in pairs(_opts) do
+		os.scan["any_" .. opt] = function(...) --> string or nil
+			return _compose_option(opt, _map_args(_quote_or_nil, ...))
+		end
+	end
+
+	-- special case for -type option
+	function os.scan.any_type(letters) --> string
+		if type(letters) == "string" and #letters > 0 then
+			-- validate
+			if letters:find("[^bcdpflsD]") then
+				error(("invalid type in os.scan.any_type: %q"):format(letters))
+			end
+
+			-- CSV list of letters is a GNU extension, so here we compose a portable form
+			local seen <const>, res <const> = {}, {}	-- deduplication
+
+			for i = 1, #letters do
+				local b <const> = letters:byte(i)
+
+				if not seen[b] then
+					seen[b] = true
+					res[#res + 1] = string.char(b)
+				end
+			end
+
+			-- result
+			return _compose_option("type", res)
 		end
 	end
 end

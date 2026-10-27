@@ -208,10 +208,60 @@ local function test_stat(just)
 	end
 end
 
+local function test_scan_filters(just)
+	local cases <const> = {
+		{ os.scan.any_name(nil), nil },
+		{ os.scan.any_name(""), nil },
+		{ os.scan.any_name("zzz"), "-name 'zzz'" },
+		{ os.scan.any_name("aaa", "bbb"), "\\( -name 'aaa' -o -name 'bbb' \\)" },
+		{ os.scan.any_name("aaa", nil, "bbb"), "\\( -name 'aaa' -o -name 'bbb' \\)" },
+		{ os.scan.any_name(nil, "zzz"), "-name 'zzz'" },
+		{ os.scan.any_name("", "zzz"), "-name 'zzz'" },
+		{ os.scan.any_iname("zzz"), "-iname 'zzz'" },
+		{ os.scan.any_path("zzz"), "-path 'zzz'" },
+		{ os.scan.any_ipath("zzz"), "-ipath 'zzz'" },
+		{ os.scan.any_lname("zzz"), "-lname 'zzz'" },
+		{ os.scan.any_ilname("zzz"), "-ilname 'zzz'" },
+		{ os.scan.any_regex("zzz"), "-regex 'zzz'" },
+		{ os.scan.any_iregex("zzz"), "-iregex 'zzz'" },
+
+		{ os.scan.any_type(nil), nil },
+		{ os.scan.any_type(""), nil },
+		{ os.scan.any_type("f"), "-type f" },
+		{ os.scan.any_type("fd"), "\\( -type f -o -type d \\)" },
+		{ os.scan.any_type("fdffdddffpp"), "\\( -type f -o -type d -o -type p \\)" },
+	}
+
+	for i, c in ipairs(cases) do
+		if c[1] ~= c[2] then
+			just:fail("(%d) unexpected result: %q instead of %q", i, c[1], c[2])
+		end
+	end
+end
+
+local function test_scan(just)
+	local t <const> = {}
+	local scan = just(os.scan.start(".", "-maxdepth 1", os.scan.any_name("luax", "not-there")))
+
+	for s in scan do
+		t[#t + 1] = s
+	end
+
+	just(scan:close())
+
+	if #t ~= 1 then
+		just:fail("got %d records instead of 1", #t)
+	end
+
+	if t[1] ~= "./luax" then
+		just:fail("unexpected result: %q", t[1])
+	end
+end
+
 -- test runner
 local function run_tests(tests)
 	for i, t in ipairs(tests) do
-		local name, test = t[1], t[2]
+		local name <const>, test <const> = t[1], t[2]
 
 		print("# test " .. i .. ":", name)
 		test(context(name))
@@ -230,4 +280,6 @@ run_tests {
 	{ "io.lines_from (default)", test_lines_from_2 },
 	{ "os.tmpdir", test_tmp_dir },
 	{ "os.stat", test_stat },
+	{ "os.scan filters", test_scan_filters },
+	{ "os.scan", test_scan },
 }
