@@ -150,49 +150,52 @@ function app:fail(msg, ...) --> never returns
 	os.exit(false)
 end
 
--- context metatable
-local _ctx_mt <const> = {}
+-- context
+do
+	-- context metatable
+	local _ctx_mt <const> = {}
 
--- context invocation as a function
-function _ctx_mt:__call(ok, ...) --> all arguments
-	if ok then
-		return ok, ...
-	end
-
-	-- got an error
-	local err, code = ...
-
-	if math.type(code) == "integer" then
-		if err == "exit" then -- error from os.execute or similar
-			-- just exit with this code, assuming an error message has already been
-			-- produced by an external program
-			os.exit(code)
+	-- context invocation as a function
+	function _ctx_mt:__call(ok, ...) --> all arguments
+		if ok then
+			return ok, ...
 		end
 
-		if err == "signal" then
-			-- exit as if terminated by this signal
-			os.exit(code + 128)
+		-- got an error
+		local err, code = ...
+
+		if math.type(code) == "integer" then
+			if err == "exit" then -- error from os.execute or similar
+				-- just exit with this code, assuming an error message has already been
+				-- produced by an external program
+				os.exit(code)
+			end
+
+			if err == "signal" then
+				-- exit as if terminated by this signal
+				os.exit(code + 128)
+			end
 		end
+
+		-- terminate
+		self:fail(tostring(err))
 	end
 
-	-- terminate
-	self:fail(tostring(err))
-end
+	-- context methods
+	function _ctx_mt:fail(msg, ...)	self._parent:fail(self._prefix .. msg, ...) end
+	function _ctx_mt:warn(msg, ...)	self._parent:warn(self._prefix .. msg, ...) end
+	function _ctx_mt:log(msg, ...)	self._parent:log(self._prefix .. msg, ...) end
 
--- context methods
-function _ctx_mt:fail(msg, ...)	self._parent:fail(self._prefix .. msg, ...) end
-function _ctx_mt:warn(msg, ...)	self._parent:warn(self._prefix .. msg, ...) end
-function _ctx_mt:log(msg, ...)	self._parent:log(self._prefix .. msg, ...) end
+	-- context method resolver
+	_ctx_mt.__index = _ctx_mt
 
--- context method resolver
-_ctx_mt.__index = _ctx_mt
-
--- [global] error context constructor
-function context(prefix, parent) --> context object
-	return setmetatable({
-		_prefix = prefix:trim() .. ": ",
-		_parent = parent or app,
-	}, _ctx_mt)
+	-- [global] error context constructor
+	function context(prefix, parent) --> context object
+		return setmetatable({
+			_prefix = prefix:trim() .. ": ",
+			_parent = parent or app,
+		}, _ctx_mt)
+	end
 end
 
 -- [global] shell
@@ -267,61 +270,64 @@ local function _read_all_cmd(cmd, prefix) --> string or (fail, error)
 	os.exit(code + 128) -- exit as if terminated by the signal
 end
 
--- 'stat' result metatable
-local _stat_mt <const> = {
-	__tostring = function(t)
-		return table.concat({
-			"name:     " .. t.name,
-			"type:     " .. t.type,
-			"owner:    " .. t.owner,
-			"perm.:    " .. t.perm,
-			"size:     " .. t.size,
-			"created:  " .. os.date("%F %T %z", t.created),
-			"modified: " .. os.date("%F %T %z", t.modified),
-		}, "\n")
-	end
-}
-
--- file type letters
-local _stat_letters <const> = {
-	["regular file"] = 'f',
-	["regular empty file"] = 'f',
-	["directory"] = 'd',
-	["symbolic link"] = 'l',
-	["character special file"] = 'c',
-	["block special file"] = 'b',
-	["fifo"] = 'p',
-	["socket"] = 's',
-	["door"] = 'D',
-}
-
--- [global] stat
-function os.stat(pathname) --> table or (fail, error)
-	-- read stats
-	local cmd = "perm=%A\tsize=%s\tcreated=%W\tmodified=%Y\towner=%U\ttype=%F"
-
-	cmd = ("stat -c '%s' %s"):format(cmd, shell.quote(pathname))
-
-	local s <const>, err <const> = _read_all_cmd(cmd)
-
-	if not s then
-		return nil, err
-	end
-
-	-- parse result
-	local data <const> = { name = pathname }
-
-	for k, v in s:gmatch("(%a+)=([^\t]+)") do
-		if k == "size" or k == "created" or k == "modified" then
-			data[k] = math.tointeger(v)
-		elseif k == "type" then
-			data[k] = _stat_letters[v] or '?'
-		else
-			data[k] = v
+-- stat
+do
+	-- 'stat' result metatable
+	local _stat_mt <const> = {
+		__tostring = function(t)
+			return table.concat({
+				"name:     " .. t.name,
+				"type:     " .. t.type,
+				"owner:    " .. t.owner,
+				"perm.:    " .. t.perm,
+				"size:     " .. t.size,
+				"created:  " .. os.date("%F %T %z", t.created),
+				"modified: " .. os.date("%F %T %z", t.modified),
+			}, "\n")
 		end
-	end
+	}
 
-	return setmetatable(data, _stat_mt)
+	-- file type letters
+	local _stat_letters <const> = {
+		["regular file"] = 'f',
+		["regular empty file"] = 'f',
+		["directory"] = 'd',
+		["symbolic link"] = 'l',
+		["character special file"] = 'c',
+		["block special file"] = 'b',
+		["fifo"] = 'p',
+		["socket"] = 's',
+		["door"] = 'D',
+	}
+
+	-- [global] stat
+	function os.stat(pathname) --> table or (fail, error)
+		-- read stats
+		local cmd = "perm=%A\tsize=%s\tcreated=%W\tmodified=%Y\towner=%U\ttype=%F"
+
+		cmd = ("stat -c '%s' %s"):format(cmd, shell.quote(pathname))
+
+		local s <const>, err <const> = _read_all_cmd(cmd)
+
+		if not s then
+			return nil, err
+		end
+
+		-- parse result
+		local data <const> = { name = pathname }
+
+		for k, v in s:gmatch("(%a+)=([^\t]+)") do
+			if k == "size" or k == "created" or k == "modified" then
+				data[k] = math.tointeger(v)
+			elseif k == "type" then
+				data[k] = _stat_letters[v] or '?'
+			else
+				data[k] = v
+			end
+		end
+
+		return setmetatable(data, _stat_mt)
+	end
 end
 
 -- [global] realpath
@@ -403,38 +409,39 @@ function io.lines_from(src, delim)
 	end
 end
 
--- close scanner object
-local function _close_object(obj)
-	setmetatable(obj, nil).close = nil	-- ?
-	return io.close(obj.src)
-end
-
--- create substitution object for scanner
-local function _scanner(src, ...)
-	if not src then
-		return src, ...
-	end
-
-	return setmetatable({
-		src = src,
-		close = _close_object,
-	}, {
-		__call = io.lines_from(src, "\0"),
-		__close = _close_object,
-	})
-end
-
 -- [global] directory scanner
 os.scan = {}
 
-function os.scan.start(dir, ...)	--> iterator, or (fail, error, ...)
-	local cmd <const> = _cat("find", shell.quote(dir), "-mindepth 1", _cat(...), "-print0")
-
-	return _scanner(io.popen(cmd))
-end
-
--- directory filters (a limited subset)
 do
+	-- close scanner object
+	local function _close_object(obj)
+		setmetatable(obj, nil).close = nil	-- ?
+		return io.close(obj.src)
+	end
+
+	-- create substitution object for scanner
+	local function _scanner(src, ...)
+		if not src then
+			return src, ...
+		end
+
+		return setmetatable({
+			src = src,
+			close = _close_object,
+		}, {
+			__call = io.lines_from(src, "\0"),
+			__close = _close_object,
+		})
+	end
+
+	-- [global] start directory scan
+	function os.scan.start(dir, ...)	--> iterator, or (fail, error, ...)
+		local cmd <const> = _cat("find", shell.quote(dir), "-mindepth 1", _cat(...), "-print0")
+
+		return _scanner(io.popen(cmd))
+	end
+
+	-- directory filters (a limited subset)
 	local function _compose_option(opt, values) --> string or nil
 		if #values == 1 then
 			return "-" .. opt .. " " .. values[1]
@@ -455,14 +462,14 @@ do
 		"regex", "iregex",
 	}
 
-	-- add functions to os.scan
+	-- [global] add functions to os.scan
 	for _, opt in pairs(_opts) do
 		os.scan["any_" .. opt] = function(...) --> string or nil
 			return _compose_option(opt, _map_args(_quote_or_nil, ...))
 		end
 	end
 
-	-- special case for -type option
+	-- [global] special case for -type option
 	function os.scan.any_type(letters) --> string
 		if type(letters) == "string" and #letters > 0 then
 			-- validate
