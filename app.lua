@@ -235,43 +235,42 @@ function os.tmpfile() --> file name
 	return tmp
 end
 
--- start the command, read all data, and close command handle
-local function _read_all_cmd(cmd, prefix) --> string or (fail, error)
-	-- start the command
-	local src <const>, err <const> = io.popen(cmd .. " 2>&1")
+-- stat
+do
+	local function _popen(cmd)
+		local src <const>, err <const> = io.popen(cmd .. " 2>&1")
 
-	if err then
-		error(("failed to start command %q: %s"):format(cmd, err))
+		if err then
+			-- should never happen
+			error(("failed to start command %q: %s"):format(cmd, err), 2)
+		end
+
+		return src
+	end
+
+	local function _pclose(src, s)
+		local ok <const>, err <const>, code <const> = src:close()
+
+		if ok then
+			return s
+		end
+
+		if err == "exit" then
+			-- extract error message from the command output
+			return nil, (s:match(":%s*([^:]-)%s*$") or s)
+		end
+
+		os.exit(code + 128) -- exit as if terminated by the signal
 	end
 
 	-- read command output
-	local s <const> = src:read("a"):trim()
-	local ok <const>, err <const>, code <const> = src:close()
+	-- (assuming the command yields either valid output, or an error message, but not both)
+	local function _read_all_cmd(cmd) --> string or (fail, error)
+		local src <const> = _popen(cmd)
 
-	if ok then
-		return s
+		return _pclose(src, src:read("a"):trim())
 	end
 
-	-- error from the command
-	if err == "exit" then
-		-- ensure prefix
-		if not prefix then
-			prefix = cmd:match("^%S+")
-		end
-
-		-- extract error message
-		if not s:find("^" .. prefix .. ":%s+") then
-			error(("%s: unexpected error message: %q"):format(prefix, s))
-		end
-
-		return nil, s:match(":%s*([^:]-)%s*$")
-	end
-
-	os.exit(code + 128) -- exit as if terminated by the signal
-end
-
--- stat
-do
 	-- 'stat' result metatable
 	local _stat_mt <const> = {
 		__tostring = function(t)
@@ -328,11 +327,11 @@ do
 
 		return setmetatable(data, _stat_mt)
 	end
-end
 
--- [global] realpath
-function os.realpath(pathname) --> real path or (fail, error)
-	return _read_all_cmd("realpath -e " .. shell.quote(pathname))
+	-- [global] realpath
+	function os.realpath(pathname) --> real path or (fail, error)
+		return _read_all_cmd("realpath -e " .. shell.quote(pathname))
+	end
 end
 
 -- [global] remove file if it exists

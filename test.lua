@@ -201,10 +201,14 @@ local function test_stat(just)
 
 -- 	print(info)
 
-	info = os.stat("./does-not-exist")
+	info, err = os.stat("./does-not-exist")
 
 	if info then
 		just:fail("nonexistent file info:\n" .. info)
+	end
+
+	if err ~= "No such file or directory" then
+		just:fail("unexpected error: %q", err)
 	end
 end
 
