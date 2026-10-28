@@ -208,13 +208,14 @@ local function test_stat(just)
 	end
 end
 
-local function test_scan_filters(just)
+local function test_scan_options(just)
 	local cases <const> = {
 		{ os.scan.any_name(nil), nil },
 		{ os.scan.any_name(""), nil },
 		{ os.scan.any_name("zzz"), "-name 'zzz'" },
 		{ os.scan.any_name("aaa", "bbb"), "\\( -name 'aaa' -o -name 'bbb' \\)" },
 		{ os.scan.any_name("aaa", nil, "bbb"), "\\( -name 'aaa' -o -name 'bbb' \\)" },
+		{ os.scan.any_name("aaa", "", "bbb", nil), "\\( -name 'aaa' -o -name 'bbb' \\)" },
 		{ os.scan.any_name(nil, "zzz"), "-name 'zzz'" },
 		{ os.scan.any_name("", "zzz"), "-name 'zzz'" },
 		{ os.scan.any_iname("zzz"), "-iname 'zzz'" },
@@ -240,14 +241,7 @@ local function test_scan_filters(just)
 end
 
 local function test_scan(just)
-	local t <const> = {}
-	local scan = just(os.scan.start(".", "-maxdepth 1", os.scan.any_name("luax", "not-there")))
-
-	for s in scan do
-		t[#t + 1] = s
-	end
-
-	just(scan:close())
+	local t <const> = just(os.scan.all(".", "-maxdepth 1", os.scan.any_name("luax", "not-there")))
 
 	if #t ~= 1 then
 		just:fail("got %d records instead of 1", #t)
@@ -280,6 +274,6 @@ run_tests {
 	{ "io.lines_from (default)", test_lines_from_2 },
 	{ "os.tmpdir", test_tmp_dir },
 	{ "os.stat", test_stat },
-	{ "os.scan filters", test_scan_filters },
+	{ "os.scan options", test_scan_options },
 	{ "os.scan", test_scan },
 }

@@ -413,24 +413,21 @@ end
 os.scan = {}
 
 do
-	-- close scanner object
-	local function _close_object(obj)
-		setmetatable(obj, nil).close = nil	-- ?
-		return io.close(obj.src)
-	end
-
 	-- create substitution object for scanner
 	local function _scanner(src, ...)
 		if not src then
 			return src, ...
 		end
 
+		local function _close()
+			return src:close()
+		end
+
 		return setmetatable({
-			src = src,
-			close = _close_object,
+			close = _close,
 		}, {
 			__call = io.lines_from(src, "\0"),
-			__close = _close_object,
+			__close = _close,
 		})
 	end
 
@@ -441,8 +438,8 @@ do
 		return _scanner(io.popen(cmd))
 	end
 
-	-- directory filters (a limited subset)
-	local function _compose_option(opt, values) --> string or nil
+	-- "find" option renderer
+	local function _opt2str(opt, values) --> string or nil
 		if #values == 1 then
 			return "-" .. opt .. " " .. values[1]
 		elseif #values > 1 then
@@ -454,7 +451,7 @@ do
 		return #s > 0 and shell.quote(s) or nil
 	end
 
-	-- options we want to implement
+	-- "find" options we want to implement
 	local _opts <const> = {
 		"name", "iname",
 		"path", "ipath",
@@ -462,16 +459,16 @@ do
 		"regex", "iregex",
 	}
 
-	-- [global] add functions to os.scan
+	-- [global] add any_* functions to os.scan
 	for _, opt in pairs(_opts) do
 		os.scan["any_" .. opt] = function(...) --> string or nil
-			return _compose_option(opt, _map_args(_quote_or_nil, ...))
+			return _opt2str(opt, _map_args(_quote_or_nil, ...))
 		end
 	end
 
 	-- [global] special case for -type option
 	function os.scan.any_type(letters) --> string
-		if type(letters) == "string" and #letters > 0 then
+		if letters and #letters > 0 then
 			-- validate
 			if letters:find("[^bcdpflsD]") then
 				error(("invalid type in os.scan.any_type: %q"):format(letters))
@@ -490,7 +487,40 @@ do
 			end
 
 			-- result
-			return _compose_option("type", res)
+			return _opt2str("type", res)
 		end
+	end
+
+	local function _ret(x, ok, ...)
+		if not ok then
+			return ok, ...
+		end
+
+		return x
+	end
+
+	local function _apply(fn, s, ...)
+		if not s then
+			return s, ...
+		end
+
+		local x <const> = fn(s)
+
+		return _ret(x, s:close())
+	end
+
+	local function _collect(s)
+		local t <const> = {}
+
+		for x in s do
+			t[#t + 1] = x
+		end
+
+		return t
+	end
+
+	-- [global] scan and collect results
+	function os.scan.all(dir, ...) --> table or (fail, ...)
+		return _apply(_collect, os.scan.start(dir, ...))
 	end
 end
