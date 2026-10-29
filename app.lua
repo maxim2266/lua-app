@@ -31,6 +31,33 @@ local function _cat(...) --> string
 	return table.concat(_map_args(_str_or_nil, ...), " ")
 end
 
+-- check result of os.execute or pipe:close(), returning 'x' on success,
+-- or result of fn(x, code) on non-zero exit
+local function _perr(x, fn, ok, ...)
+	if ok then
+		return x
+	end
+
+	local err <const>, code <const> = ...
+
+	if math.type(code) == "integer" then
+		if err == "exit" then
+			return fn(x, code)
+		end
+
+		if err == "signal" then
+			os.exit(128 + code)
+		end
+	end
+
+	error(tostring(err))	-- should never happen
+end
+
+-- close pipe from io.popen
+local function _pclose(pipe, x, fn)
+	return _perr(x, fn, pipe:close())
+end
+
 -- regex for string expansion
 local _exp_re <const> = "%$%$?{[%a_][%w_]*}"
 
@@ -101,6 +128,7 @@ local function _write_msg(name, kind, msg, ...)
 
 	-- write
 	if not io.stderr:write(msg) then
+		_write_msg = function() end	-- no recursion
 		os.exit(125) -- STDERR is dead
 	end
 end
@@ -242,33 +270,23 @@ do
 
 		if err then
 			-- should never happen
-			error(("failed to start command %q: %s"):format(cmd, err), 2)
+			error(("failed to start command %q: %s"):format(cmd, err))
 		end
 
 		return src
 	end
 
-	local function _pclose(src, s)
-		local ok <const>, err <const>, code <const> = src:close()
-
-		if ok then
-			return s
-		end
-
-		if err == "exit" then
-			-- extract error message from the command output
-			return nil, (s:match(":%s*([^:]-)%s*$") or s)
-		end
-
-		os.exit(code + 128) -- exit as if terminated by the signal
+	local function _on_err(s)
+		-- get error message from the command output
+		return nil, (s:match(":%s*([^:]-)%s*$") or s)
 	end
 
-	-- read command output
-	-- (assuming the command yields either valid output, or an error message, but not both)
+	-- read command output, assuming the command yields either valid output,
+	-- or an error message, but not both
 	local function _read_all_cmd(cmd) --> string or (fail, error)
 		local src <const> = _popen(cmd)
 
-		return _pclose(src, src:read("a"):trim())
+		return _pclose(src, src:read("a"):trim(), _on_err)
 	end
 
 	-- 'stat' result metatable
@@ -490,36 +508,25 @@ do
 		end
 	end
 
-	local function _ret(x, ok, ...)
-		if not ok then
-			return ok, ...
-		end
-
-		return x
-	end
-
-	local function _apply(fn, s, ...)
-		if not s then
-			return s, ...
-		end
-
-		local x <const> = fn(s)
-
-		return _ret(x, s:close())
-	end
-
-	local function _collect(s)
-		local t <const> = {}
-
-		for x in s do
-			t[#t + 1] = x
-		end
-
-		return t
+	local function _on_err(t, code)
+		-- "find" errors like "Permission denied" may still be ok for some applications
+		return t, code
 	end
 
 	-- [global] scan and collect results
 	function os.scan.all(dir, ...) --> table or (fail, ...)
-		return _apply(_collect, os.scan.start(dir, ...))
+		local src <const>, err <const> = os.scan.start(dir, ...)
+
+		if not src then
+			return nil, err
+		end
+
+		local t <const> = {}
+
+		for s in src do
+			t[#t + 1] = s
+		end
+
+		return _pclose(src, t, _on_err)
 	end
 end
