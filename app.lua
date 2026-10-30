@@ -1,10 +1,3 @@
--- [global] trim whitespace from both ends of the string
-function string.trim(s) --> string
-	-- see trim12 from http://lua-users.org/wiki/StringTrim
-	local i <const> = s:match("^%s*()")
-	return i > #s and "" or s:match(".*%S", i)
-end
-
 -- non-empty string or nil
 local function _str_or_nil(s)
 	return #s > 0 and s or nil
@@ -31,31 +24,11 @@ local function _cat(...) --> string
 	return table.concat(_map_args(_str_or_nil, ...), " ")
 end
 
--- check result of os.execute or pipe:close(), returning 'x' on success,
--- or result of fn(x, code) on non-zero exit
-local function _perr(x, fn, ok, ...)
-	if ok then
-		return x
-	end
-
-	local err <const>, code <const> = ...
-
-	if math.type(code) == "integer" then
-		if err == "exit" then
-			return fn(x, code)
-		end
-
-		if err == "signal" then
-			os.exit(128 + code)
-		end
-	end
-
-	error(tostring(err))	-- should never happen
-end
-
--- close pipe from io.popen
-local function _pclose(pipe, x, fn)
-	return _perr(x, fn, pipe:close())
+-- [global] trim whitespace from both ends of the string
+function string.trim(s) --> string
+	-- see trim12 from http://lua-users.org/wiki/StringTrim
+	local i <const> = s:match("^%s*()")
+	return i > #s and "" or s:match(".*%S", i)
 end
 
 -- regex for string expansion
@@ -112,12 +85,14 @@ function string:expand_to(dest, map) --> ok or (fail, ...)
 	return loop(1, true)
 end
 
--- original os.exit
-local _real_exit <const> = os.exit
+do
+	-- original os.exit
+	local _real_exit <const> = os.exit
 
--- [global] os.exit replacement to make sure Lua state is closed upon exit
-function os.exit(code)
-	_real_exit(code, true)
+	-- [global] os.exit replacement to make sure Lua state is closed upon exit
+	function os.exit(code)
+		_real_exit(code, true)
+	end
 end
 
 -- write message to STDERR
@@ -134,23 +109,23 @@ local function _write_msg(name, kind, msg, ...)
 end
 
 -- [global] application object
-app = {
+app = setmetatable({
 	-- application name
 	NAME = arg[0]:match("[^/]+$"),
 
 	-- table of exit handlers
-	_exit_handlers = setmetatable({}, {
-		__gc = function(handlers)
-			for _, fn in ipairs(handlers) do
-				pcall(fn)
-			end
+	_exit_handlers = {}
+}, {
+	__gc = function(a)
+		os.exit = function() end	-- no more exits
+
+		for _, fn in ipairs(a._exit_handlers) do
+			pcall(fn)
 		end
-	}),
-}
+	end
+})
 
 -- register exit handler
--- Note: any handler calling os.exit will terminate the application without
--- invoking the remaining exit handlers
 function app:atexit(fn, ...)
 	-- check parameter now to avoid surprises when the program terminates
 	local t <const> = type(fn)
@@ -190,7 +165,7 @@ do
 		end
 
 		-- got an error
-		local err, code = ...
+		local err <const>, code <const> = ...
 
 		if math.type(code) == "integer" then
 			if err == "exit" then -- error from os.execute or similar
@@ -227,29 +202,95 @@ do
 end
 
 -- [global] shell
-shell = {
-	-- shell quoting (bash or sh)
-	quote = function(s) --> quoted string
-		s = "'" .. s:gsub("'", "'\\''") .. "'"
-		s = s:gsub("''\\'", "\\'"):gsub("''$", "")	-- not strictly necessary
+shell = {}
 
-		return s
-	end,
+-- [global] shell quoting (bash or sh)
+function shell.quote(s) --> quoted string
+	s = "'" .. s:gsub("'", "'\\''") .. "'"
+	s = s:gsub("''\\'", "\\'"):gsub("''$", "")	-- not strictly necessary
 
-	-- read command output
-	read = function(cmd, ctx) --> string
-		local just <const> = context("shell", ctx)
-		local src <const> = just(io.popen(type(cmd) == "table" and table.concat(cmd, " ") or cmd))
-		local data <const> = src:read("a")
+	return s
+end
 
-		just(src:close())
-		return data
-	end,
-}
+do
+	-- check result of os.execute or pipe:close(), returning 'x' on success,
+	-- or result of fn(x, code) on non-zero exit
+	local function _perr(x, fn, ok, err, code)
+		if ok then
+			return x
+		end
+
+		if math.type(code) == "integer" then
+			if err == "exit" then
+				return fn(x, code)
+			end
+
+			if err == "signal" then
+				os.exit(128 + code)
+			end
+		end
+
+		error("_perr: " .. err)	-- should never happen
+	end
+
+	-- close pipe from io.popen
+	local function _pclose(pipe, x, fn)
+		return _perr(x, fn, pipe:close())
+	end
+
+	-- error status
+	local function _err_status(_, code)
+		return nil, "exit", code
+	end
+
+	local function _cmd_err(s)
+		-- get error message from the command output
+		return nil, (s:match(":%s*([^:]-)%s*$") or s)
+	end
+
+	-- read all output from pipe
+	local function _read_all(pipe)
+		return pipe:read("a")
+	end
+
+	-- [global] call 'fn' with the pipe from 'cmd'
+	function shell.read(cmd, fn)
+		local pipe <const> = assert(io.popen(cmd))
+
+		return _pclose(pipe, fn(pipe), _err_status)
+	end
+
+	-- [global] read command output
+	function shell.read_all(cmd)
+		return shell.read(cmd, _read_all)
+	end
+
+	-- [global] read command's combined output, assuming the command yields either
+	-- valid output, or an error message, but not both
+	function shell.read_comb(cmd)
+		local pipe <const> = assert(io.popen(cmd .. " 2>&1"))
+
+		return _pclose(pipe, pipe:read("a"):trim(), _cmd_err)
+	end
+
+	-- [global] shell name
+	setmetatable(shell, {
+		__index = function(t, k)
+			if k == "NAME" then
+				-- see https://stackoverflow.com/questions/3327013/how-to-determine-the-current-interactive-shell-that-im-in-command-line
+				local name = t.read_all("ps -q $$ -o 'comm='")
+
+				name = name and name:trim() or "<unknown>"
+				rawset(t, k, name)
+				return name
+			end
+		end,
+	})
+end
 
 -- [global] create automatically removed temporary directory
 function os.tmpdir(ctx) --> directory name
-	local tmp <const> = shell.read("mktemp -d", ctx):trim()
+	local tmp <const> = (ctx or context("os.tmpdir"))(shell.read_all("mktemp -d")):trim()
 
 	app:atexit(os.execute, "rm -rf '" .. tmp .. "'")
 	return tmp
@@ -265,30 +306,6 @@ end
 
 -- stat
 do
-	local function _popen(cmd)
-		local src <const>, err <const> = io.popen(cmd .. " 2>&1")
-
-		if err then
-			-- should never happen
-			error(("failed to start command %q: %s"):format(cmd, err))
-		end
-
-		return src
-	end
-
-	local function _on_err(s)
-		-- get error message from the command output
-		return nil, (s:match(":%s*([^:]-)%s*$") or s)
-	end
-
-	-- read command output, assuming the command yields either valid output,
-	-- or an error message, but not both
-	local function _read_all_cmd(cmd) --> string or (fail, error)
-		local src <const> = _popen(cmd)
-
-		return _pclose(src, src:read("a"):trim(), _on_err)
-	end
-
 	-- 'stat' result metatable
 	local _stat_mt <const> = {
 		__tostring = function(t)
@@ -324,7 +341,7 @@ do
 
 		cmd = ("stat -c '%s' %s"):format(cmd, shell.quote(pathname))
 
-		local s <const>, err <const> = _read_all_cmd(cmd)
+		local s <const>, err <const> = shell.read_comb(cmd)
 
 		if not s then
 			return nil, err
@@ -348,13 +365,13 @@ do
 
 	-- [global] realpath
 	function os.realpath(pathname) --> real path or (fail, error)
-		return _read_all_cmd("realpath -e " .. shell.quote(pathname))
+		return shell.read_comb("realpath -e " .. shell.quote(pathname))
 	end
 end
 
--- [global] remove file if it exists
-function os.remove_if_exists(fname) --> true or (fail, msg, errno)
-	local ok, msg, errno = os.remove(fname)
+-- [global] like os.remove, but does not fail for nonexistent files
+function os.unlink(fname) --> true or (fail, msg, errno)
+	local ok <const>, msg <const>, errno <const> = os.remove(fname)
 
 	if ok or errno == 2 then -- ENOENT 2 No such file or directory
 		return true
@@ -364,7 +381,7 @@ function os.remove_if_exists(fname) --> true or (fail, msg, errno)
 end
 
 -- [global] iterate source file producing lines separated by the given one byte delimiter
--- Note: functions io.lines and file:lines both skip the nearest
+-- Note: in Lua5.4 functions io.lines and file:lines both skip the nearest
 -- pcall when interrupted by SIGINT, this one does not.
 -- (see https://groups.google.com/g/lua-l/c/mmNZs5Fjt20)
 function io.lines_from(src, delim)
@@ -374,7 +391,7 @@ function io.lines_from(src, delim)
 	end
 
 	-- delimiter must be a single byte
-	if #delim ~= 1 then
+	if type(delim) ~= "string" or #delim ~= 1 then
 		error(("invalid delimiter %q in io.lines_from"):format(delim), 2)
 	end
 
@@ -430,31 +447,6 @@ end
 os.scan = {}
 
 do
-	-- create substitution object for scanner
-	local function _scanner(src, ...)
-		if not src then
-			return src, ...
-		end
-
-		local function _close()
-			return src:close()
-		end
-
-		return setmetatable({
-			close = _close,
-		}, {
-			__call = io.lines_from(src, "\0"),
-			__close = _close,
-		})
-	end
-
-	-- [global] start directory scan
-	function os.scan.start(dir, ...)	--> iterator, or (fail, error, ...)
-		local cmd <const> = _cat("find", shell.quote(dir), "-mindepth 1", _cat(...), "-print0")
-
-		return _scanner(io.popen(cmd))
-	end
-
 	-- "find" option renderer
 	local function _opt2str(opt, values) --> string or nil
 		if #values == 1 then
@@ -491,8 +483,9 @@ do
 				error(("invalid type in os.scan.any_type: %q"):format(letters))
 			end
 
-			-- CSV list of letters is a GNU extension, so here we compose a portable form
-			local seen <const>, res <const> = {}, {}	-- deduplication
+			-- CSV list of letters is a GNU extension, so here we compose a portable
+			-- form, with letter deduplication
+			local seen <const>, res <const> = {}, {}
 
 			for i = 1, #letters do
 				local b <const> = letters:byte(i)
@@ -508,25 +501,40 @@ do
 		end
 	end
 
-	local function _on_err(t, code)
-		-- "find" errors like "Permission denied" may still be ok for some applications
-		return t, code
+	-- os.scan(dir, ...):for_each(fn) --> ok or (fail, error)
+	local function _for_each(sc, fn)
+		return shell.read(sc._cmd, function(src)
+			for s in io.lines_from(src, "\0") do
+				if fn(s) then
+					break
+				end
+			end
+
+			return true
+		end)
 	end
 
-	-- [global] scan and collect results
-	function os.scan.all(dir, ...) --> table or (fail, ...)
-		local src <const>, err <const> = os.scan.start(dir, ...)
+	-- os.scan(dir, ...):all() --> table or (fail, error)
+	local function _all(sc)
+		return shell.read(sc._cmd, function(src)
+			local t <const> = {}
 
-		if not src then
-			return nil, err
-		end
+			for s in io.lines_from(src, "\0") do
+				t[#t + 1] = s
+			end
 
-		local t <const> = {}
-
-		for s in src do
-			t[#t + 1] = s
-		end
-
-		return _pclose(src, t, _on_err)
+			return t
+		end)
 	end
+
+	-- [global] os.scan(dir, ...opts) --> scan object
+	setmetatable(os.scan, {
+		__call = function(_, dir, ...)
+			return {
+				_cmd = _cat("find", shell.quote(dir), "-mindepth 1", _cat(...), "-print0"),
+				all = _all,
+				for_each = _for_each,
+			}
+		end
+	})
 end

@@ -106,9 +106,19 @@ local function test_shell_quote()
 	}
 
 	for i, t in ipairs(tests) do
-		local s <const> = shell.read("echo -n " .. shell.quote(t))
+		local s <const> = shell.read_all("echo -n " .. shell.quote(t))
 
 		ensure(s == t, "(%d) unexpected result: %q", i, s)
+	end
+end
+
+local function test_shell_name()
+	local name <const> = shell.NAME
+
+	if name ~= "<unknown>" then
+		app:log("shell: " .. name)
+	else
+		app:warn("unknown shell")
 	end
 end
 
@@ -177,11 +187,15 @@ local function test_lines_from_2(just)
 end
 
 local function test_tmp_dir(just)
-	local name <const> = shell.read("./luax -e 'print(os.tmpdir())'", just):trim()
+	local name <const> = just(shell.read_all("./luax -e 'print(os.tmpdir())'")):trim()
 
 	if os.execute(("[ -e '%s' ]"):format(name)) then
 		just:fail("directory %s is still there", name)
 	end
+end
+
+local function test_unlink(just)
+	just(os.unlink("does-not-exist"))
 end
 
 local function test_stat(just)
@@ -207,8 +221,17 @@ local function test_stat(just)
 		just:fail("nonexistent file info:\n" .. info)
 	end
 
+	-- LC_MESSAGES='C.UTF-8' ??
 	if err ~= "No such file or directory" then
 		just:fail("unexpected error: %q", err)
+	end
+end
+
+local function test_realpath(just)
+	local rp <const> = just(os.realpath("./luax"))
+
+	if rp ~= (os.getenv("PWD") .. "/luax") then
+		just:fail("unexpected path: %q", rp)
 	end
 end
 
@@ -244,8 +267,24 @@ local function test_scan_options(just)
 	end
 end
 
-local function test_scan(just)
-	local t <const> = just(os.scan.all(".", "-maxdepth 1", os.scan.any_name("luax", "not-there")))
+local function test_scan_all(just)
+	local src <const> = os.scan(".", "-maxdepth 1", os.scan.any_name("luax", "not-there"))
+	local t <const> = just(src:all())
+
+	if #t ~= 1 then
+		just:fail("got %d records instead of 1", #t)
+	end
+
+	if t[1] ~= "./luax" then
+		just:fail("unexpected result: %q", t[1])
+	end
+end
+
+local function test_scan_for_each(just)
+	local src <const> = os.scan(".", "-maxdepth 1", os.scan.any_name("luax", "not-there"))
+	local t <const> = {}
+
+	just(src:for_each(function(s) t[#t + 1] = s end))
 
 	if #t ~= 1 then
 		just:fail("got %d records instead of 1", #t)
@@ -274,10 +313,14 @@ run_tests {
 	{ "string.expand", test_expand },
 	{ "string.expand_to", test_expand_to },
 	{ "shell.quote", test_shell_quote },
+	{ "shell.NAME", test_shell_name },
 	{ "io.lines_from", test_lines_from },
 	{ "io.lines_from (default)", test_lines_from_2 },
 	{ "os.tmpdir", test_tmp_dir },
+	{ "os.unlink", test_unlink },
 	{ "os.stat", test_stat },
+	{ "os.realpath", test_realpath },
 	{ "os.scan options", test_scan_options },
-	{ "os.scan", test_scan },
+	{ "os.scan:all", test_scan_all },
+	{ "os.scan:for_each", test_scan_for_each },
 }
