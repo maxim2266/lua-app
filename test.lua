@@ -267,9 +267,9 @@ local function test_scan_options(just)
 	end
 end
 
-local function test_scan_all(just)
-	local src <const> = os.scan(".", "-maxdepth 1", os.scan.any_name("luax", "not-there"))
-	local t <const> = just(src:all())
+local function test_scan_collect(just)
+	local scan <const> = os.scan.of(".", "-maxdepth 1", os.scan.any_name("luax", "not-there"))
+	local t <const> = just(scan())
 
 	if #t ~= 1 then
 		just:fail("got %d records instead of 1", #t)
@@ -280,11 +280,11 @@ local function test_scan_all(just)
 	end
 end
 
-local function test_scan_for_each(just)
-	local src <const> = os.scan(".", "-maxdepth 1", os.scan.any_name("luax", "not-there"))
+local function test_scan_iter(just)
+	local scan <const> = os.scan.of(".", "-maxdepth 1", os.scan.any_name("luax", "not-there"))
 	local t <const> = {}
 
-	just(src:for_each(function(s) t[#t + 1] = s end))
+	just(scan(function(s) t[#t + 1] = s end))
 
 	if #t ~= 1 then
 		just:fail("got %d records instead of 1", #t)
@@ -321,6 +321,6 @@ run_tests {
 	{ "os.stat", test_stat },
 	{ "os.realpath", test_realpath },
 	{ "os.scan options", test_scan_options },
-	{ "os.scan:all", test_scan_all },
-	{ "os.scan:for_each", test_scan_for_each },
+	{ "os.scan collect", test_scan_collect },
+	{ "os.scan iterate", test_scan_iter },
 }

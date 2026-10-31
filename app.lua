@@ -19,8 +19,8 @@ local function _map_args(fn, ...) --> table
 	return t
 end
 
--- concatenate non-empty strings
-local function _cat(...) --> string
+-- concatenate non-empty strings with one space in between
+local function _join(...) --> string
 	return table.concat(_map_args(_str_or_nil, ...), " ")
 end
 
@@ -185,9 +185,9 @@ do
 	end
 
 	-- context methods
-	function _ctx_mt:fail(msg, ...)	self._parent:fail(self._prefix .. msg, ...) end
-	function _ctx_mt:warn(msg, ...)	self._parent:warn(self._prefix .. msg, ...) end
-	function _ctx_mt:log(msg, ...)	self._parent:log(self._prefix .. msg, ...) end
+	function _ctx_mt:fail(msg, ...)	return self._parent:fail(self._prefix .. msg, ...) end
+	function _ctx_mt:warn(msg, ...)	return self._parent:warn(self._prefix .. msg, ...) end
+	function _ctx_mt:log(msg, ...)	return self._parent:log(self._prefix .. msg, ...) end
 
 	-- context method resolver
 	_ctx_mt.__index = _ctx_mt
@@ -195,7 +195,7 @@ do
 	-- [global] error context constructor
 	function context(prefix, parent) --> context object
 		return setmetatable({
-			_prefix = prefix:trim() .. ": ",
+			_prefix = prefix and (prefix .. ": ") or "",
 			_parent = parent or app,
 		}, _ctx_mt)
 	end
@@ -480,7 +480,7 @@ do
 		if letters and #letters > 0 then
 			-- validate
 			if letters:find("[^bcdpflsD]") then
-				error(("invalid type in os.scan.any_type: %q"):format(letters))
+				error(("invalid type letter(s) in os.scan.any_type: %q"):format(letters))
 			end
 
 			-- CSV list of letters is a GNU extension, so here we compose a portable
@@ -501,40 +501,30 @@ do
 		end
 	end
 
-	-- os.scan(dir, ...):for_each(fn) --> ok or (fail, error)
-	local function _for_each(sc, fn)
-		return shell.read(sc._cmd, function(src)
-			for s in io.lines_from(src, "\0") do
-				if fn(s) then
-					break
+	-- [global] scan function constructor
+	function os.scan.of(dir, ...) --> function(fn?)
+		local cmd <const> = _join("find", shell.quote(dir), "-mindepth 1", _join(...), "-print0")
+
+		return function(fn)
+			local _fn <const> = fn and function(src)
+				for s in io.lines_from(src, "\0") do
+					if fn(s) then
+						break
+					end
 				end
+
+				return true
+			end or function(src)
+				local t <const> = {}
+
+				for s in io.lines_from(src, "\0") do
+					t[#t + 1] = s
+				end
+
+				return t
 			end
 
-			return true
-		end)
-	end
-
-	-- os.scan(dir, ...):all() --> table or (fail, error)
-	local function _all(sc)
-		return shell.read(sc._cmd, function(src)
-			local t <const> = {}
-
-			for s in io.lines_from(src, "\0") do
-				t[#t + 1] = s
-			end
-
-			return t
-		end)
-	end
-
-	-- [global] os.scan(dir, ...opts) --> scan object
-	setmetatable(os.scan, {
-		__call = function(_, dir, ...)
-			return {
-				_cmd = _cat("find", shell.quote(dir), "-mindepth 1", _cat(...), "-print0"),
-				all = _all,
-				for_each = _for_each,
-			}
+			return shell.read(cmd, _fn)
 		end
-	})
+	end
 end
